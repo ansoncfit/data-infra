@@ -6,7 +6,7 @@ dependencies:
 sql: |
   WITH tbl_max AS (
     SELECT *, MAX(calitp_extracted_at) OVER () AS max_date
-    FROM `{{ "gtfs_schedule_history.calitp_status" | table }}`
+    FROM `{{ "gtfs_schedule_external.calitp_status" | table }}`
   )
   SELECT * EXCEPT(max_date) FROM tbl_max
   WHERE calitp_extracted_at=max_date

@@ -15,8 +15,8 @@
 # one task per table.
 # TODO: split out operators.py into submodules and move logic into there.
 
-SRC_SCHEMA = "gtfs_schedule_history"
-DST_SCHEMA = "gtfs_schedule_type2"
+SRC_SCHEMA = "gtfs_schedule_external"
+DST_SCHEMA = "gtfs_schedule_history"
 
 
 # Task 1: Create tables =======================================================

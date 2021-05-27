@@ -1,7 +1,7 @@
 operator: operators.ExternalTable
 source_objects:
   - 'schedule/processed/*/shapes.txt'
-destination_project_dataset_table: "gtfs_schedule_history.shapes"
+destination_project_dataset_table: "gtfs_schedule_external.shapes"
 skip_leading_rows: 1
 schema_fields:
   - name: calitp_itp_id

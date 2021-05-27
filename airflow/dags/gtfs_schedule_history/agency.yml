@@ -1,7 +1,7 @@
-operator: operators.ExternalTable
+operator: operators.ExternalTableGtfsSchedule
 source_objects:
   - 'schedule/processed/*/agency.txt'
-destination_project_dataset_table: "gtfs_schedule_history.agency"
+destination_project_dataset_table: "gtfs_schedule_external.agency"
 skip_leading_rows: 1
 schema_fields:
   - name: calitp_itp_id

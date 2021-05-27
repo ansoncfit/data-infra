@@ -16,7 +16,7 @@ SRC_DIR = "schedule/{execution_date}/{itp_id}_{url_number}"
 DST_DIR = "schedule/processed/{date_string}_{itp_id}_{url_number}"
 VALIDATION_REPORT = "validation_report.json"
 
-DATASET = "gtfs_schedule_history"
+DATASET = "gtfs_schedule_external"
 
 
 def main(execution_date, ti, **kwargs):
@@ -26,9 +26,6 @@ def main(execution_date, ti, **kwargs):
     # pull schemas from external table tasks. these tasks only run once, so their
     # xcom data is stored as a prior date.
     schemas = [get_table(f"{DATASET}.{t}").columns.keys() for t in tables.table_name]
-    # ti.xcom_pull(
-    #     dag_id="gtfs_schedule_history", task_ids=tables, include_prior_dates=True
-    # )
 
     # fetch latest feeds that need loading  from warehouse ----
     date_string = execution_date.to_date_string()

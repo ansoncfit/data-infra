@@ -18,7 +18,7 @@ from calitp import get_table
 def main(execution_date, ti, **kwargs):
     # pull schemas from external table tasks. these tasks only run once, so their
     # xcom data is stored as a prior date.
-    tbl_status = get_table("gtfs_schedule_history.calitp_status")
+    tbl_status = get_table("gtfs_schedule_external.calitp_status")
     colnames = [c.name for c in tbl_status.columns]
 
     src_uri = f"schedule/{execution_date}/status.csv"

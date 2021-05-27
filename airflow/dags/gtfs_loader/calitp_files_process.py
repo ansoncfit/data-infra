@@ -7,7 +7,7 @@
 # ---
 
 """
-Process and dump files for gtfs_schedule_history.calitp_files external table.
+Process and dump files for gtfs_schedule_external.calitp_files external table.
 This is for the files downloaded for an agency, as well as validator results.
 """
 

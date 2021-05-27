@@ -1,7 +1,7 @@
 operator: operators.ExternalTable
 source_objects:
   - 'schedule/processed/*/fare_attributes.txt'
-destination_project_dataset_table: "gtfs_schedule_history.fare_attributes"
+destination_project_dataset_table: "gtfs_schedule_external.fare_attributes"
 skip_leading_rows: 1
 schema_fields:
   - name: calitp_itp_id
