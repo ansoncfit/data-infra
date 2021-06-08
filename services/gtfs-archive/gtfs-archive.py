@@ -5,47 +5,20 @@ import logging
 import pathlib
 import threading
 import queue
-import yaml
 import urllib.request
 import urllib.error
-
-#class RhythmThread(threading.Thread):
-#
-#  def __init__(self, statusq, name):
-#
-#    super().__init__()
-#
-#    self.statusq = statusq
-#    self.name    = name
-#    self.logger  = None
-#
-#  def heartbeat(self):
-#    try:
-#      self.statusq.put_nowait({ 'thread': self.name, 'action': 'heartbeat' })
-#    except queue.Full:
-#      if not hasattr(self.logger, 'warning'):
-#        self.logger = logging.getLogger()
-#      self.logger.warning('{}: heartbeat dropped'.format(name))
-#
-#  def arrest(self):
-#    try:
-#      self.statusq.put_nowait({ 'thread': self.name, 'action': 'arrest' })
-#    except queue.Full:
-#      if not hasattr(self.logger, 'warning'):
-#        self.logger = logging.getLogger()
-#      self.logger.warning('{}: arrest dropped'.format(name))
 
 class EventBus(object):
 
   def __init__(self, logger):
 
-    self.lock = threading.Lock()
+    self.lock      = threading.Lock()
     self.listeners = {}
-    self.logger = logger
+    self.logger    = logger
 
   def add_listener(self, t_name, evt_name, evt_q):
 
-    with self.lock.acquire():
+    with self.lock:
       if evt_name in self.listeners:
         self.listeners[evt_name].add((t_name, evt_q))
       else:
@@ -53,7 +26,7 @@ class EventBus(object):
 
   def rm_listener(self, t_name, evt_name, evt_q):
 
-    with self.lock.acquire():
+    with self.lock:
       if evt_name in self.listeners and (t_name, evt_q) in self.listeners[evt_name]:
         self.listeners[evt_name].remove((t_name, evt_q))
       else:
@@ -63,7 +36,7 @@ class EventBus(object):
 
     evt_name = evt[0]
 
-    with self.lock.acquire():
+    with self.lock:
       for listener in self.listeners.get(evt_name, set()):
         t_name = listener[0]
         evt_q  = listener[1]
@@ -82,17 +55,17 @@ class Ticker(threading.Thread):
     self.evtbus  = evtbus
     self.tickint = tickint
     self.name    = 'ticker'
-    self.nticks  = 0
+    self.tickid  = 0
 
   def tick(self):
-    evt = ( 'tick', self.nticks, time.time() )
+    evt = ( 'tick', self.tickid, time.time() )
     evtbus.emit(evt)
     self.logger.debug('{}: emit: {}'.format(self.name, evt))
-    self.nticks += 1
+    self.tickid += 1
 
   def run(self):
 
-    self.nticks = 0
+    self.tickid = 0
     self.tick()
 
     while time.sleep(self.tickint) is None:
@@ -106,11 +79,11 @@ class Fetcher(threading.Thread):
 
     self.logger = logger
     self.evtbus = evtbus
-    self.wq   = wq
-    self.url  = url
-    self.meta = meta
-    self.name = 'fetcher {}:{}'.format(meta['itp_id'], meta['gtfs_rt_url_name'])
-    self.evtq = queue.Queue()
+    self.wq     = wq
+    self.url    = url
+    self.meta   = meta
+    self.name   = 'fetcher {}:{}'.format(meta['itp_id'], meta['gtfs_rt_url_name'])
+    self.evtq   = queue.Queue()
 
   def fetch(self):
     try:
@@ -143,6 +116,46 @@ class Fetcher(threading.Thread):
 
     self.logger.debug('{}: finalized'.format(self.name))
 
+class FSWriter(threading.Thread):
+
+  def __init__(self, logger, wq, basepath):
+
+    super().__init__()
+
+    self.logger   = logger
+    self.wq       = wq
+    self.basepath = basepath
+    self.name     = 'fswriter'
+
+  def write(self, item):
+
+    evt_ts           = item['evt'][2]
+    itp_id           = item['meta']['itp_id']
+    gtfs_rt_url_name = item['meta']['gtfs_rt_url_name']
+    dest             = pathlib.Path(self.basepath, str(evt_ts), str(itp_id), str(gtfs_rt_url_name))
+
+    try:
+      dest.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+      self.logger.error('{}: mkdir: {}: {}'.format(self.name, dest.parent, e))
+      return
+
+    try:
+      with dest.open(mode='wb') as f:
+        f.write(item['data'].read())
+    except OSError as e:
+      self.logger.error('{}: write: {}: {}'.format(self.name, dest, e))
+      return
+
+  def run(self):
+
+    item = self.wq.get()
+    while item is not None:
+      self.write(item)
+      item = self.wq.get()
+
+    self.logger.debug('{}: finalized'.format(self.name))
+
 if __name__ == '__main__':
 
   agencies_path = os.getenv('CALITP_AGENCIES_YML')
@@ -157,3 +170,27 @@ if __name__ == '__main__':
     tickint = float(tickint)
   else:
     tickint = 20.0
+
+  #
+  # TESTING
+  #
+
+  feed_url = 'http://api.bart.gov/gtfsrt/tripupdate.aspx'
+  feed_meta = {
+    'itp_id': 279,
+    'gtfs_rt_url_name': 'trip_updates'
+  }
+  wq = queue.Queue()
+  basepath = pathlib.Path('/tmp/gtfs-rt-data')
+
+  logger  = logging.getLogger(sys.argv[0])
+  evtbus  = EventBus(logger)
+  ticker  = Ticker(logger, evtbus, tickint)
+  writer  = FSWriter(logger, wq, basepath)
+  fetcher = Fetcher(logger, evtbus, wq, feed_url, feed_meta)
+
+  logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+  writer.start()
+  fetcher.start()
+  ticker.start()
+  ticker.join()
