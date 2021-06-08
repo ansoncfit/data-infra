@@ -9,93 +9,139 @@ import yaml
 import urllib.request
 import urllib.error
 
-class RhythmThread(threading.Thread):
+#class RhythmThread(threading.Thread):
+#
+#  def __init__(self, statusq, name):
+#
+#    super().__init__()
+#
+#    self.statusq = statusq
+#    self.name    = name
+#    self.logger  = None
+#
+#  def heartbeat(self):
+#    try:
+#      self.statusq.put_nowait({ 'thread': self.name, 'action': 'heartbeat' })
+#    except queue.Full:
+#      if not hasattr(self.logger, 'warning'):
+#        self.logger = logging.getLogger()
+#      self.logger.warning('{}: heartbeat dropped'.format(name))
+#
+#  def arrest(self):
+#    try:
+#      self.statusq.put_nowait({ 'thread': self.name, 'action': 'arrest' })
+#    except queue.Full:
+#      if not hasattr(self.logger, 'warning'):
+#        self.logger = logging.getLogger()
+#      self.logger.warning('{}: arrest dropped'.format(name))
 
-  def __init__(self, statusq, name):
+class EventBus(object):
 
-    super().__init__()
+  def __init__(self, logger):
 
-    self.statusq = statusq
-    self.name    = name
-    self.logger  = None
+    self.lock = threading.Lock()
+    self.listeners = {}
+    self.logger = logger
 
-  def heartbeat(self):
-    try:
-      self.statusq.put_nowait({ 'thread': self.name, 'action': 'heartbeat' })
-    except queue.Full:
-      if not hasattr(self.logger, 'warning'):
-        self.logger = logging.getLogger()
-      self.logger.warning('{}: heartbeat dropped'.format(name))
+  def add_listener(self, t_name, evt_name, evt_q):
 
-  def arrest(self):
-    try:
-      self.statusq.put_nowait({ 'thread': self.name, 'action': 'arrest' })
-    except queue.Full:
-      if not hasattr(self.logger, 'warning'):
-        self.logger = logging.getLogger()
-      self.logger.warning('{}: arrest dropped'.format(name))
+    with self.lock.acquire():
+      if evt_name in self.listeners:
+        self.listeners[evt_name].add((t_name, evt_q))
+      else:
+        self.listeners[evt_name] = {(t_name, evt_q)}
+
+  def rm_listener(self, t_name, evt_name, evt_q):
+
+    with self.lock.acquire():
+      if evt_name in self.listeners and (t_name, evt_q) in self.listeners[evt_name]:
+        self.listeners[evt_name].remove((t_name, evt_q))
+      else:
+        return
+
+  def emit(self, evt):
+
+    evt_name = evt[0]
+
+    with self.lock.acquire():
+      for listener in self.listeners.get(evt_name, set()):
+        t_name = listener[0]
+        evt_q  = listener[1]
+        try:
+          evt_q.put_nowait(evt)
+        except queue.Full:
+          self.logger.warning('{}: event dropped: {}'.format(t_name, evt))
 
 class Ticker(threading.Thread):
 
-  def __init__(self, tickint):
+  def __init__(self, logger, evtbus, tickint):
 
     super().__init__()
 
-    self.name    = 'ticker'
+    self.logger  = logger
+    self.evtbus  = evtbus
     self.tickint = tickint
-    self.subs    = []
+    self.name    = 'ticker'
+    self.nticks  = 0
 
-  def add_subscriber(self, name, evtq):
-    self.subs.append({'name': name, 'q': evtq})
+  def tick(self):
+    evt = ( 'tick', self.nticks, time.time() )
+    evtbus.emit(evt)
+    self.logger.debug('{}: emit: {}'.format(self.name, evt))
+    self.nticks += 1
 
   def run(self):
 
-    self.logger = logging.getLogger()
+    self.nticks = 0
+    self.tick()
 
     while time.sleep(self.tickint) is None:
-      evt = 'tick:{}'.format(time.time())
-      self.logger.debug('event: {}'.format(evt))
-      for sub in self.subs:
-        try:
-          sub['q'].put_nowait(evt)
-        except queue.Full:
-          self.logger.warning('{}: dropped event {}'.format(sub['name'], evt))
-          continue
+      self.tick()
 
 class Fetcher(threading.Thread):
 
-  def __init__(self, evtq, wq, url, meta):
+  def __init__(self, logger, evtbus, wq, url, meta):
 
     super().__init__()
 
-    self.name = 'fetcher {}:{}'.format(meta['itp_id'], meta['gtfs_rt_url_name'])
-    self.evtq = evtq
+    self.logger = logger
+    self.evtbus = evtbus
     self.wq   = wq
     self.url  = url
     self.meta = meta
+    self.name = 'fetcher {}:{}'.format(meta['itp_id'], meta['gtfs_rt_url_name'])
+    self.evtq = queue.Queue()
+
+  def fetch(self):
+    try:
+      rs = urllib.request.urlopen(self.url)
+      return rs
+    except (
+      urllib.error.URLError,
+      urllib.error.HTTPError
+    ) as e:
+      self.logger.warning('{}: error fetching url {}: {}'.format(self.name, self.url, e))
 
   def run(self):
 
-    self.logger = logging.getLogger()
-    self.logger.debug('{}: started'.format(self.name))
+    self.evtbus.add_listener(self.name, 'tick', self.evtq)
 
     evt = self.evtq.get()
     while evt is not None:
-      try:
-        rs = urllib.request.urlopen(self.url)
-        self.wq.put({
-          'evt': evt,
-          'data': rs.read(),
-          'meta': dict(self.meta)
-        })
-      except (
-        urllib.error.URLError,
-        urllib.error.HTTPError
-      ) as e:
-        self.logger.warning('{}: error fetching url {}: {}'.format(self.name, self.url, e))
+
+      evt_name = evt[0]
+      if evt_name == 'tick':
+        rs = self.fetch()
+        if hasattr(rs, 'read'):
+          self.wq.put({
+            'evt': evt,
+            'data': rs,
+            'meta': dict(self.meta)
+          })
+
       evt = self.evtq.get()
 
-    self.logger.debug('{}: finalized'.format(self.name)
+    self.logger.debug('{}: finalized'.format(self.name))
 
 if __name__ == '__main__':
 
