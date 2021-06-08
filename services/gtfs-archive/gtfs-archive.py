@@ -58,7 +58,7 @@ class Ticker(threading.Thread):
     self.tickid  = 0
 
   def tick(self):
-    evt = ( 'tick', self.tickid, time.time() )
+    evt = ( 'tick', self.tickid, int(time.time()) )
     evtbus.emit(evt)
     self.logger.debug('{}: emit: {}'.format(self.name, evt))
     self.tickid += 1
@@ -167,9 +167,9 @@ if __name__ == '__main__':
     agencies_path = pathlib.Path(os.getcwd(), 'agencies.yml')
 
   if tickint:
-    tickint = float(tickint)
+    tickint = int(tickint)
   else:
-    tickint = 20.0
+    tickint = 20
 
   #
   # TESTING
