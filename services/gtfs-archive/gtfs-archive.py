@@ -23,7 +23,8 @@ def main(argv):
   }
 
   backends_table = {
-    'file://': FSWriter
+    'file://': FSWriter,
+    'gs://': GCPBucketWriter
   }
 
   # Setup logging channel
@@ -42,6 +43,7 @@ def main(argv):
   agencies_path = os.getenv('CALITP_AGENCIES_YML')
   tickint       = os.getenv('CALITP_TICK_INT')
   data_dest     = os.getenv('CALITP_DATA_DEST')
+  secret        = os.getenv('CALITP_DATA_DEST_SECRET')
 
   if agencies_path:
     agencies_path = pathlib.Path(agencies_path)
@@ -70,7 +72,7 @@ def main(argv):
   for scheme in backends_table:
     if data_dest.startswith(scheme):
       writercls = backends_table[scheme]
-      writer = writercls(logger, wq, data_dest)
+      writer = writercls(logger, wq, data_dest, secret)
       break
 
   if writer is None:
@@ -288,6 +290,45 @@ class FSWriter(BaseWriter):
 
 
 
+class GCPBucketWriter(BaseWriter):
+
+  name    = 'gswriter'
+  baseurl = 'https://storage.googleapis.com/upload/storage/v1/b'
+
+  def __init__(self, logger, wq, urlstr, secret=None):
+
+    super().__init__(logger, wq, urlstr, secret)
+
+    url = urllib.parse.urlparse(urlstr)
+
+    self.uploadurl = '{}/{}/o'.format(self.baseurl, url.netloc)
+    self.basepath  = url.path
+
+    while self.basepath.startswith('/'):
+      self.basepath = self.basepath[1:]
+
+    if self.basepath and not self.basepath.endswith('/'):
+      self.basepath += '/'
+
+  def write(self, name, rstream):
+
+    rqurl     = '{}?uploadType=media&name={}{}'.format(self.uploadurl, self.basepath, name)
+    rqheaders = {
+      'Content-Type': 'application/octet-stream'
+    }
+
+    if self.secret is not None:
+      rqheaders['Authorization'] = 'Bearer {}'.format(self.secret)
+
+    rq = urllib.request.Request(rqurl, method='POST', headers=rqheaders, data=rstream)
+
+    try:
+      rs = urllib.request.urlopen(rq)
+    except (
+      urllib.error.URLError,
+      urllib.error.HTTPError
+    ) as e:
+      self.logger.error('{}: error uploading to bucket {}: {}'.format(self.name, self.urlstr, e))
 
 if __name__ == '__main__':
   main(sys.argv)
