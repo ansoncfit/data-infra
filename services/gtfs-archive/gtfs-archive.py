@@ -5,10 +5,18 @@ import logging
 import pathlib
 import threading
 import queue
+import yaml
 import urllib.request
 import urllib.error
 
 def main(argv):
+
+  # Setup output channel
+
+  logger = logging.getLogger(argv[0])
+  logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
+  # Parse environment
 
   agencies_path = os.getenv('CALITP_AGENCIES_YML')
   tickint       = os.getenv('CALITP_TICK_INT')
@@ -23,28 +31,70 @@ def main(argv):
   else:
     tickint = 20
 
-  #
-  # TESTING
-  #
+  # Load data
 
-  feed = (
-    '279/trip_updates/0',
-    'http://api.bart.gov/gtfsrt/tripupdate.aspx'
-  )
-  wq = queue.Queue()
+  feeds    = parse_feeds(logger, agencies_path)
+
+  # Instantiate threads
+
+  wq       = queue.Queue()
+
+  ## TESTING
   basepath = pathlib.Path('/tmp/gtfs-rt-data')
+  ##
 
-  logger  = logging.getLogger(argv[0])
   evtbus  = EventBus(logger)
   ticker  = Ticker(logger, evtbus, tickint)
   writer  = FSWriter(logger, wq, basepath)
-  fetcher = Fetcher(logger, evtbus, wq, feed)
 
-  logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+  fetchers = []
+  for feed in feeds:
+    fetchers.append(Fetcher(logger, evtbus, wq, feed))
+
+  # Run
+
   writer.start()
-  fetcher.start()
+  for fetcher in fetchers:
+    fetcher.start()
   ticker.start()
   ticker.join()
+
+#  feed = (
+#    '279/trip_updates/0',
+#    'http://api.bart.gov/gtfsrt/tripupdate.aspx'
+#  )
+
+def parse_feeds(logger, feeds_src):
+
+  feeds = []
+
+  with feeds_src.open() as f:
+
+    feeds_src_data = yaml.load(f, Loader=yaml.FullLoader)
+    for agency_name, agency_def in feeds_src_data.items():
+
+      if 'gtfs_rt_urls' not in agency_def:
+        continue
+
+      if 'itp_id' not in agency_def:
+        logger.warning('agency {}: skipped loading invalid definition (missing itp_id)'.format(agency_name))
+        continue
+
+      agency_itp_id       = agency_def['itp_id']
+      agency_gtfs_rt_urls = agency_def['gtfs_rt_urls']
+
+      if not hasattr(agency_gtfs_rt_urls, 'items'):
+        logger.warning('agency {}/{}: skipped loading unsupported data format for gtfs_rt_urls'.format(agency_itp_id, agency_name))
+        continue
+
+      for agency_feed_name, agency_feed_urls in agency_gtfs_rt_urls.items():
+        for i, url in enumerate(agency_feed_urls):
+          feeds.append((
+            '{}/{}/{}'.format(agency_itp_id, agency_feed_name, i),
+            url
+          ))
+
+  return feeds
 
 
 class EventBus(object):
