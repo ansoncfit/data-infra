@@ -59,7 +59,7 @@ class Ticker(threading.Thread):
 
   def tick(self):
     evt = ( 'tick', self.tickid, int(time.time()) )
-    evtbus.emit(evt)
+    self.evtbus.emit(evt)
     self.logger.debug('{}: emit: {}'.format(self.name, evt))
     self.tickid += 1
 
