@@ -27,19 +27,18 @@ def main(argv):
   # TESTING
   #
 
-  feed_url = 'http://api.bart.gov/gtfsrt/tripupdate.aspx'
-  feed_meta = {
-    'itp_id': 279,
-    'gtfs_rt_url_name': 'trip_updates'
-  }
+  feed = (
+    '279/trip_updates/0',
+    'http://api.bart.gov/gtfsrt/tripupdate.aspx'
+  )
   wq = queue.Queue()
   basepath = pathlib.Path('/tmp/gtfs-rt-data')
 
-  logger  = logging.getLogger(sys.argv[0])
+  logger  = logging.getLogger(argv[0])
   evtbus  = EventBus(logger)
   ticker  = Ticker(logger, evtbus, tickint)
   writer  = FSWriter(logger, wq, basepath)
-  fetcher = Fetcher(logger, evtbus, wq, feed_url, feed_meta)
+  fetcher = Fetcher(logger, evtbus, wq, feed)
 
   logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
   writer.start()
@@ -113,27 +112,27 @@ class Ticker(threading.Thread):
 
 class Fetcher(threading.Thread):
 
-  def __init__(self, logger, evtbus, wq, url, meta):
+  def __init__(self, logger, evtbus, wq, urldef):
 
     super().__init__()
 
-    self.logger = logger
-    self.evtbus = evtbus
-    self.wq     = wq
-    self.url    = url
-    self.meta   = meta
-    self.name   = 'fetcher {}:{}'.format(meta['itp_id'], meta['gtfs_rt_url_name'])
-    self.evtq   = queue.Queue()
+    self.logger  = logger
+    self.evtbus  = evtbus
+    self.wq      = wq
+    self.urldef  = urldef
+    self.name    = 'fetcher {}'.format(urldef[0])
+    self.evtq    = queue.Queue()
 
   def fetch(self):
+    url = self.urldef[1]
     try:
-      rs = urllib.request.urlopen(self.url)
+      rs = urllib.request.urlopen(url)
       return rs
     except (
       urllib.error.URLError,
       urllib.error.HTTPError
     ) as e:
-      self.logger.warning('{}: error fetching url {}: {}'.format(self.name, self.url, e))
+      self.logger.warning('{}: error fetching url {}: {}'.format(self.name, url, e))
 
   def run(self):
 
@@ -148,8 +147,8 @@ class Fetcher(threading.Thread):
         if hasattr(rs, 'read'):
           self.wq.put({
             'evt': evt,
+            'urldef': self.urldef,
             'data': rs,
-            'meta': dict(self.meta)
           })
 
       evt = self.evtq.get()
@@ -170,9 +169,8 @@ class FSWriter(threading.Thread):
   def write(self, item):
 
     evt_ts           = item['evt'][2]
-    itp_id           = item['meta']['itp_id']
-    gtfs_rt_url_name = item['meta']['gtfs_rt_url_name']
-    dest             = pathlib.Path(self.basepath, str(evt_ts), str(itp_id), str(gtfs_rt_url_name))
+    data_name        = item['urldef'][0]
+    dest             = pathlib.Path(self.basepath, str(evt_ts), data_name)
 
     try:
       dest.parent.mkdir(parents=True, exist_ok=True)
