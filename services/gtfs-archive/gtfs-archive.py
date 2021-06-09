@@ -11,10 +11,24 @@ import urllib.error
 
 def main(argv):
 
-  # Setup output channel
+  # Setup logging channel
 
   logger = logging.getLogger(argv[0])
-  logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+
+  level_table = {
+    'debug': logging.DEBUG,
+    'info': logging.INFO,
+    'warning': logging.WARNING,
+    'error': logging.ERROR,
+    'critical': logging.CRITICAL
+  }
+
+  level_name = os.getenv('CALITP_LOG_LEVEL')
+  if hasattr(level_name, 'lower'):
+    level_name = level_name.lower()
+  level = level_table.get(level_name, logging.WARNING)
+
+  logging.basicConfig(stream=sys.stdout, level=level)
 
   # Parse environment
 
