@@ -8,6 +8,46 @@ import queue
 import urllib.request
 import urllib.error
 
+def main(argv):
+
+  agencies_path = os.getenv('CALITP_AGENCIES_YML')
+  tickint       = os.getenv('CALITP_TICK_INT')
+
+  if agencies_path:
+    agencies_path = pathlib.Path(agencies_path)
+  else:
+    agencies_path = pathlib.Path(os.getcwd(), 'agencies.yml')
+
+  if tickint:
+    tickint = int(tickint)
+  else:
+    tickint = 20
+
+  #
+  # TESTING
+  #
+
+  feed_url = 'http://api.bart.gov/gtfsrt/tripupdate.aspx'
+  feed_meta = {
+    'itp_id': 279,
+    'gtfs_rt_url_name': 'trip_updates'
+  }
+  wq = queue.Queue()
+  basepath = pathlib.Path('/tmp/gtfs-rt-data')
+
+  logger  = logging.getLogger(sys.argv[0])
+  evtbus  = EventBus(logger)
+  ticker  = Ticker(logger, evtbus, tickint)
+  writer  = FSWriter(logger, wq, basepath)
+  fetcher = Fetcher(logger, evtbus, wq, feed_url, feed_meta)
+
+  logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+  writer.start()
+  fetcher.start()
+  ticker.start()
+  ticker.join()
+
+
 class EventBus(object):
 
   def __init__(self, logger):
@@ -157,40 +197,4 @@ class FSWriter(threading.Thread):
     self.logger.debug('{}: finalized'.format(self.name))
 
 if __name__ == '__main__':
-
-  agencies_path = os.getenv('CALITP_AGENCIES_YML')
-  tickint       = os.getenv('CALITP_TICK_INT')
-
-  if agencies_path:
-    agencies_path = pathlib.Path(agencies_path)
-  else:
-    agencies_path = pathlib.Path(os.getcwd(), 'agencies.yml')
-
-  if tickint:
-    tickint = int(tickint)
-  else:
-    tickint = 20
-
-  #
-  # TESTING
-  #
-
-  feed_url = 'http://api.bart.gov/gtfsrt/tripupdate.aspx'
-  feed_meta = {
-    'itp_id': 279,
-    'gtfs_rt_url_name': 'trip_updates'
-  }
-  wq = queue.Queue()
-  basepath = pathlib.Path('/tmp/gtfs-rt-data')
-
-  logger  = logging.getLogger(sys.argv[0])
-  evtbus  = EventBus(logger)
-  ticker  = Ticker(logger, evtbus, tickint)
-  writer  = FSWriter(logger, wq, basepath)
-  fetcher = Fetcher(logger, evtbus, wq, feed_url, feed_meta)
-
-  logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
-  writer.start()
-  fetcher.start()
-  ticker.start()
-  ticker.join()
+  main(sys.argv)
