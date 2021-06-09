@@ -11,9 +11,7 @@ import urllib.error
 
 def main(argv):
 
-  # Setup logging channel
-
-  logger = logging.getLogger(argv[0])
+  # Config tables
 
   level_table = {
     'debug': logging.DEBUG,
@@ -22,6 +20,14 @@ def main(argv):
     'error': logging.ERROR,
     'critical': logging.CRITICAL
   }
+
+  backends_table = {
+    'file://': FSWriter
+  }
+
+  # Setup logging channel
+
+  logger = logging.getLogger(argv[0])
 
   level_name = os.getenv('CALITP_LOG_LEVEL')
   if hasattr(level_name, 'lower'):
@@ -34,6 +40,7 @@ def main(argv):
 
   agencies_path = os.getenv('CALITP_AGENCIES_YML')
   tickint       = os.getenv('CALITP_TICK_INT')
+  data_dest     = os.getenv('CALITP_DATA_DEST')
 
   if agencies_path:
     agencies_path = pathlib.Path(agencies_path)
@@ -45,21 +52,29 @@ def main(argv):
   else:
     tickint = 20
 
+  if not data_dest:
+    data_dest = 'file:///dev/null'
+
   # Load data
 
   feeds    = parse_feeds(logger, agencies_path)
 
   # Instantiate threads
 
-  wq       = queue.Queue()
-
-  ## TESTING
-  basepath = pathlib.Path('/tmp/gtfs-rt-data')
-  ##
-
+  wq      = queue.Queue()
   evtbus  = EventBus(logger)
   ticker  = Ticker(logger, evtbus, tickint)
-  writer  = FSWriter(logger, wq, basepath)
+  writer  = None
+
+  for scheme in backends_table:
+    if data_dest.startswith(scheme):
+      writercls = backends_table[scheme]
+      writer = writercls(logger, wq, data_dest)
+      break
+
+  if writer is None:
+    logger.warning('unsupported CALITP_DATA_DEST: {}: using default value file:///dev/null'.format(data_dest))
+    writer = FSWriter(logger, wq, 'file:///dev/null')
 
   fetchers = []
   for feed in feeds:
@@ -72,11 +87,6 @@ def main(argv):
     fetcher.start()
   ticker.start()
   ticker.join()
-
-#  feed = (
-#    '279/trip_updates/0',
-#    'http://api.bart.gov/gtfsrt/tripupdate.aspx'
-#  )
 
 def parse_feeds(logger, feeds_src):
 
@@ -221,13 +231,13 @@ class Fetcher(threading.Thread):
 
 class FSWriter(threading.Thread):
 
-  def __init__(self, logger, wq, basepath):
+  def __init__(self, logger, wq, url):
 
     super().__init__()
 
     self.logger   = logger
     self.wq       = wq
-    self.basepath = basepath
+    self.basepath = pathlib.Path(url[len('file://'):])
     self.name     = 'fswriter'
 
   def write(self, item):
@@ -235,6 +245,9 @@ class FSWriter(threading.Thread):
     evt_ts           = item['evt'][2]
     data_name        = item['urldef'][0]
     dest             = pathlib.Path(self.basepath, str(evt_ts), data_name)
+
+    if self.basepath == pathlib.Path('/dev/null'):
+      dest = self.basepath
 
     try:
       dest.parent.mkdir(parents=True, exist_ok=True)
