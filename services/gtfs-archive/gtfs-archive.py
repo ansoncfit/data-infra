@@ -148,8 +148,8 @@ class Ticker(threading.Thread):
 
   def tick(self):
     evt = ( 'tick', self.tickid, int(time.time()) )
-    self.evtbus.emit(evt)
     self.logger.debug('{}: emit: {}'.format(self.name, evt))
+    self.evtbus.emit(evt)
     self.tickid += 1
 
   def run(self):
@@ -182,7 +182,7 @@ class Fetcher(threading.Thread):
       urllib.error.URLError,
       urllib.error.HTTPError
     ) as e:
-      self.logger.warning('{}: error fetching url {}: {}'.format(self.name, url, e))
+      self.logger.info('{}: error fetching url {}: {}'.format(self.name, url, e))
 
   def run(self):
 
