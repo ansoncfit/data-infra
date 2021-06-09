@@ -108,7 +108,7 @@ def parse_feeds(logger, feeds_src):
       agency_gtfs_rt_urls = agency_def['gtfs_rt_urls']
 
       if not hasattr(agency_gtfs_rt_urls, 'items'):
-        logger.warning('agency {}/{}: skipped loading unsupported data format for gtfs_rt_urls'.format(agency_itp_id, agency_name))
+        logger.warning('itp_id {} ({}): skipped loading unsupported data format for gtfs_rt_urls'.format(agency_itp_id, agency_name))
         continue
 
       for agency_feed_name, agency_feed_urls in agency_gtfs_rt_urls.items():
